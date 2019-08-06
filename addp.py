@@ -63,10 +63,6 @@ def build_fields(flds):
 
 def parse_frame(d):
 	info = {}
-	if d[:4] != 'DIGI':
-		print 'Invalid magic header:', repr(d[:4])
-		return None
-
 	hdr = d[4:8]
 	bdy = d[8:]
 	(typ, ln) = struct.unpack(">HH", hdr)
@@ -84,22 +80,32 @@ def parse_frame(d):
 	info['code'] = typ
 	info['msg_len'] = ln
 	info['message'] = typ_codes[typ]
+	info['msg_type'] = 'request'
 
 	if typ == 0x01:
 		# discovery req
-		info['msg_type'] = 'request'
 		info['mac'] = struct.unpack("BBBBBB", bdy)
 
 	elif typ == 0x03:
-		info['msg_type'] = 'request'
-		
+		# change ip req
+		info['ip_addr'] = struct.unpack("BBBB", bdy[:4])
+		info['subnet'] = struct.unpack("BBBB", bdy[4:8])
+		info['gatway'] = struct.unpack("BBBB", bdy[8:12])
+		info['mac'] = struct.unpack("BBBBBB", bdy[12:18])
+		info['auth'] = bdy[18:]
+
 	elif typ == 0x05:
 		# reboot req
-		info['msg_type'] = 'request'
 		info['mac'] = struct.unpack("BBBBBB", bdy[:6])
+		info['auth'] = bdy[6:]
+
+	elif typ == 0x07:
+		# dhcp req
+		#info['byte'] = struct.unpack("B", bdy[:1])
+		info['mac'] = struct.unpack("BBBBBB", bdy[1:7])
 		info['auth'] = bdy[7:]
 
-	elif typ == 0x02 or typ == 0x04 or typ == 0x06:
+	elif typ in [0x02, 0x04, 0x06, 0x08]:
 		info['msg_type'] = 'response'
 		vals = parse_response(bdy)
 		info = dict(info.items() + vals.items())
@@ -111,13 +117,31 @@ def build_request(typ, **kwargs):
 		# discover - requires mac
 		mac = kwargs['mac']
 		body = struct.pack("6B", *mac)
+	if typ == 0x03:
+		# static network configuration
+		mac = kwargs['mac']
+		auth = kwargs['auth']
+		ipaddr = kwargs['ipaddr']
+		subnet = kwargs['subnet']
+		gateway = kwargs['gateway']
+		body = struct.pack("4B", *ipaddr)
+		body += struct.pack("4B", *subnet)
+		body += struct.pack("4B", *gateway)
+		body += struct.pack("6B", *mac)
+		body += struct.pack("B", len(auth)) + auth
 	if typ == 0x05:
 		# reboot - requires mac, auth
 		mac = kwargs['mac']
 		auth = kwargs['auth']
 		body = struct.pack("6B", *mac)
 		body += struct.pack("B", len(auth)) + auth
-						   
+	if typ == 0x07:
+		# dhcp - requires mac, auth, 
+		mac = kwargs['mac']
+		auth = kwargs['auth']
+		body = struct.pack("B", 1)
+		body += struct.pack("6B", *mac)
+		body += struct.pack("B", len(auth)) + auth
 	return build_frame(typ, body)
 
 def build_response(info):
@@ -135,20 +159,17 @@ def build_response(info):
 				0x0e: 771,
 				0x13: 1027,
 				0x12: 1}
-
 		resp = build_frame(0x02, build_fields(flds))
 	elif info['code'] == 0x05:
 		flds = {0x01: (0x00, 0x00, 0x00, 0x00, 0x00, 0x00),
 				0x09: "Operation FOO",
 				0x0a: 0,
 				0x11: 0}
-
 		resp = build_frame(0x06, build_fields(flds))
+
 	return resp
 
-	
 def parse_response(body):
-
 	info = {}
 	while body != "":
 		code = ord(body[0])
@@ -167,4 +188,3 @@ def code_16_parser(x):
 		return struct.unpack("BBBB", x)
 	else:
 		return x
-
