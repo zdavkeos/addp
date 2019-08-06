@@ -63,6 +63,10 @@ def build_fields(flds):
 
 def parse_frame(d):
 	info = {}
+	if d[:4] != 'DIGI':	
+	    print 'Invalid magic header:', repr(d[:4])	
+	    return None	
+
 	hdr = d[4:8]
 	bdy = d[8:]
 	(typ, ln) = struct.unpack(">HH", hdr)
